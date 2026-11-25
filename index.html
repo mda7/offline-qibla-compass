@@ -1,0 +1,353 @@
+<!doctype html>
+<!--
+  Offline Qibla Compass. Bearing and sensor handling adapted from Qibla Finder:
+  https://github.com/s3eidat/qibla-finder
+
+  MIT License
+  Copyright (c) 2026 S3eidat
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#102326">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Offline Qibla Compass</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.45 system-ui, sans-serif; background: #102326; color: #f5f3e9; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% 8%, #214f4d, #102326 55%); }
+    main { width: min(100%, 520px); margin: auto; padding: 24px 20px 36px; }
+    h1 { margin: 0; font-size: clamp(1.55rem, 6vw, 2rem); letter-spacing: -.03em; }
+    .subtitle { margin: 5px 0 24px; color: #bdd1ca; }
+    .card { background: #173337; border: 1px solid #3d6060; border-radius: 20px; padding: 18px; margin: 16px 0; box-shadow: 0 10px 25px #07191b44; }
+    .motto { margin: 0 0 18px; text-align: center; }
+    .motto-ar { margin: 0; color: #f1c980; font: 1.8rem/1.6 "Noto Naskh Arabic", "Noto Sans Arabic", serif; }
+    .motto-en { margin: 0; color: #c2d5d1; font-size: .9rem; }
+    .compass { position: relative; width: min(74vw, 320px); aspect-ratio: 1; margin: 6px auto 20px; border: 3px solid #90b9a6; border-radius: 50%; background: radial-gradient(circle, #1d3c40 0 18%, #12292e 19% 100%); box-shadow: inset 0 0 0 8px #25474a, 0 0 0 1px #c8d9bf; }
+    .dial, .needle { position: absolute; inset: 0; transition: transform 120ms linear; }
+    .dial span { position: absolute; color: #d9e7da; font-weight: 700; font-size: 1.05rem; }
+    .dial .n { top: 11px; left: 50%; transform: translateX(-50%); color: #f1c980; }
+    .dial .e { right: 15px; top: 50%; transform: translateY(-50%); }
+    .dial .s { bottom: 11px; left: 50%; transform: translateX(-50%); }
+    .dial .w { left: 15px; top: 50%; transform: translateY(-50%); }
+    .needle::before { content: ""; position: absolute; left: 50%; top: 15%; width: 0; height: 0; transform: translateX(-50%); border-left: 15px solid transparent; border-right: 15px solid transparent; border-bottom: 94px solid #f4c66d; filter: drop-shadow(0 2px 4px #0008); }
+    .needle::after { content: ""; position: absolute; left: 50%; top: 50%; width: 16px; height: 16px; border-radius: 50%; transform: translate(-50%, -50%); background: #fff4d7; border: 3px solid #d59f45; }
+    .phone-mark { position: absolute; z-index: 2; top: -17px; left: 50%; transform: translateX(-50%); color: #e8f4ed; font-size: 1.4rem; line-height: 1; }
+    .bearing { text-align: center; font-size: 2.5rem; font-weight: 750; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .bearing-label, .status, .hint, .small { text-align: center; color: #c2d5d1; }
+    .bearing-label { margin-top: 5px; }
+    .status { min-height: 2.9em; margin: 18px 0 10px; }
+    .hint { font-size: .9rem; margin: 12px 0 0; }
+    button { border: 0; border-radius: 12px; padding: 12px 16px; background: #e9c47b; color: #1b2827; font: inherit; font-weight: 700; cursor: pointer; }
+    .show-button { width: 100%; padding: 16px; font-size: 1.1rem; }
+    .show-button:disabled { opacity: .75; cursor: wait; }
+    button:focus-visible, summary:focus-visible { outline: 3px solid #f6d08d; outline-offset: 3px; }
+    .about summary { cursor: pointer; color: #f5f3e9; font-weight: 700; }
+    .about[open] > summary, .license[open] > summary { margin-bottom: 14px; }
+    .about h2 { margin: 18px 0 5px; font-size: 1rem; }
+    .about p { margin: 0 0 12px; color: #c2d5d1; font-size: .9rem; }
+    .license { margin-top: 14px; }
+    .license summary { font-size: .9rem; }
+    footer { color: #afc3bc; font-size: .8rem; text-align: center; }
+    .beta-note { display: block; margin-bottom: 10px; color: #e9c47b; font-size: .9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Qibla compass</h1>
+  <p class="subtitle">A private, offline direction finder for your phone.</p>
+  <button class="show-button" id="showButton" type="button">Show Qibla</button>
+
+  <section class="card" aria-label="Qibla direction">
+    <div class="motto">
+      <p class="motto-ar" lang="ar" dir="rtl">لا غالب إلا الله</p>
+      <p class="motto-en">There is no victor but God.</p>
+    </div>
+    <div class="compass" role="img" aria-label="Compass with gold arrow pointing toward the Qibla">
+      <div class="phone-mark" aria-hidden="true">▲</div>
+      <div class="dial" id="dial" aria-hidden="true"><span class="n">N</span><span class="e">E</span><span class="s">S</span><span class="w">W</span></div>
+      <div class="needle" id="needle" aria-hidden="true"></div>
+    </div>
+    <p class="hint">Gold arrow = Qibla &nbsp;·&nbsp; White ▲ = top of phone</p>
+    <div class="bearing" id="bearing">—</div>
+    <div class="bearing-label">Qibla bearing from true north</div>
+    <p class="small" id="usedLocation">Location not set</p>
+    <p class="status" id="status" role="status">Tap Show Qibla to get your location.</p>
+    <p class="hint" id="arrowHint">The live arrow appears when the compass has a heading. Otherwise, use the bearing with a reliable compass.</p>
+    <p class="hint">If the arrow drifts, move the phone in a figure eight and keep it away from metal or magnets.</p>
+  </section>
+
+  <details class="card about">
+    <summary>How it works, privacy &amp; credits</summary>
+    <h2>How it works</h2>
+    <p>The app uses your phone's latitude and longitude to calculate the shortest-path direction to the Kaaba (21.4225° N, 39.8262° E). The bearing is measured clockwise from true north. On Android, the phone's compass and a local magnetic correction turn that bearing into the arrow you see.</p>
+    <h2>Privacy and offline use</h2>
+    <p>The APK calculates the direction on your phone. It has no Internet permission, account, analytics, or location database. It requests precise location to find your position. The HTML version uses your browser's location and sensor permissions.</p>
+    <h2>Accuracy</h2>
+    <p>Check the location shown above. Hold the phone flat and away from metal or magnets; these can affect the compass. The displayed location accuracy describes the position fix, not the compass accuracy.</p>
+    <h2>Credits and license</h2>
+    <p>Bearing and sensor handling were adapted from S3eidat's Qibla Finder (github.com/s3eidat/qibla-finder) under the MIT License. The notice below covers that adapted material. A license for this project's additional code has not yet been published.</p>
+    <details class="license">
+      <summary>Read the MIT license notice</summary>
+      <p>Copyright (c) 2026 S3eidat</p>
+      <p>Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:</p>
+      <p>The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.</p>
+      <p>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</p>
+    </details>
+  </details>
+
+  <footer><span class="beta-note">Version 1.9 Beta · Please verify the direction before relying on it.</span></footer>
+</main>
+<script>
+(() => {
+  'use strict';
+  const KAABA = { lat: 21.4225, lon: 39.8262 };
+  const rad = Math.PI / 180;
+  const bearingEl = document.getElementById('bearing');
+  const usedLocationEl = document.getElementById('usedLocation');
+  const statusEl = document.getElementById('status');
+  const dialEl = document.getElementById('dial');
+  const needleEl = document.getElementById('needle');
+  const arrowHintEl = document.getElementById('arrowHint');
+  const showButton = document.getElementById('showButton');
+  let qibla = null;
+  let heading = null;
+  let locationPending = false;
+  let locationRequestIsRefresh = false;
+  let locationFailure = '';
+  let bearingFailure = '';
+  let running = false;
+  let lastSensor = 0;
+  let sensorTimeout = null;
+  let absoluteSensor = null;
+  let sensorSource = null;
+
+  // Initial great-circle bearing, clockwise from geographic north.
+  function bearing(lat, lon) {
+    const p1 = lat * rad, p2 = KAABA.lat * rad, delta = (KAABA.lon - lon) * rad;
+    const y = Math.sin(delta) * Math.cos(p2);
+    const x = Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(delta);
+    if (Math.hypot(x, y) < 1e-12) return null; // At the Kaaba or its antipode, no unique direction exists.
+    return (Math.atan2(y, x) / rad + 360) % 360;
+  }
+  function angleDiff(a, b) { return ((a - b + 540) % 360) - 180; }
+  function render() {
+    bearingEl.textContent = qibla === null ? '—' : qibla.toFixed(1) + '°';
+    needleEl.style.visibility = qibla === null || heading === null ? 'hidden' : 'visible';
+    arrowHintEl.textContent = heading === null
+      ? 'The live arrow appears when the compass has a heading. Otherwise, use the bearing with a reliable compass.'
+      : 'Hold the phone flat and turn until the gold arrow lines up with the white ▲. The top edge of your phone then points toward the Qibla.';
+    dialEl.style.transform = `rotate(${heading === null ? 0 : -heading}deg)`;
+    needleEl.style.transform = `rotate(${qibla === null ? 0 : qibla - (heading ?? 0)}deg)`;
+    if (qibla === null) {
+      statusEl.textContent = locationPending ? (locationRequestIsRefresh
+          ? 'Waiting for a fresh GPS fix (up to 60 seconds)…'
+          : 'Waiting for GPS location (up to 60 seconds)…')
+        : locationFailure ? locationFailure
+        : bearingFailure ? bearingFailure
+        : 'Tap Show Qibla to get your location.';
+    }
+    else if (heading === null) statusEl.textContent = running
+      ? 'Location found. Waiting for the compass…'
+      : `Face ${qibla.toFixed(1)}° clockwise from true north.`;
+    else {
+      const turn = angleDiff(qibla, heading);
+      statusEl.textContent = Math.abs(turn) < 5
+        ? 'Qibla is straight ahead, along the top edge of your phone.'
+        : `Turn ${Math.abs(turn).toFixed(0)}° ${turn > 0 ? 'right' : 'left'} to line up the gold arrow with ▲.`;
+    }
+  }
+  function locationFailed(message) {
+    qibla = null;
+    bearingFailure = '';
+    locationPending = false;
+    locationFailure = message;
+    usedLocationEl.textContent = 'Location unavailable';
+    showButton.disabled = false;
+    showButton.textContent = 'Show Qibla';
+    render();
+  }
+  function setCoordinates(lat, lon, source, accuracy) {
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      locationFailed('The phone returned an invalid location. Try again.');
+      return;
+    }
+    locationPending = false;
+    locationFailure = '';
+    showButton.disabled = false;
+    showButton.textContent = 'Refresh location';
+    qibla = bearing(lat, lon);
+    bearingFailure = qibla === null ? 'There is no unique Qibla bearing at this point.' : '';
+    const accuracyText = Number.isFinite(accuracy) && accuracy >= 0 ? ` · ±${Math.round(accuracy)} m` : '';
+    usedLocationEl.textContent = `${source}: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°${accuracyText}`;
+    if (qibla === null) {
+      render();
+      return;
+    }
+    if (window.AndroidBridge) window.AndroidBridge.setDeclination(lat, lon);
+    render();
+  }
+  function screenAngle() {
+    return screen.orientation && Number.isFinite(screen.orientation.angle) ? screen.orientation.angle : (window.orientation || 0);
+  }
+  function setHeading(next, source) {
+    if (sensorSource && sensorSource !== source) return;
+    sensorSource = source;
+    heading = heading === null ? next : (heading + angleDiff(next, heading) * 0.25 + 360) % 360;
+    lastSensor = Date.now();
+    render();
+  }
+  function onOrientation(event) {
+    let value = null;
+    if (Number.isFinite(event.webkitCompassHeading)) value = event.webkitCompassHeading;
+    else if ((event.absolute || event.type === 'deviceorientationabsolute') && Number.isFinite(event.alpha)) value = 360 - event.alpha;
+    if (value === null) return; // Relative orientation cannot establish north.
+    const next = (value + screenAngle() + 360) % 360;
+    setHeading(next, 'orientation event');
+  }
+  function startAbsoluteSensor() {
+    if (!('AbsoluteOrientationSensor' in window)) {
+      return;
+    }
+    try {
+      absoluteSensor = new AbsoluteOrientationSensor({ frequency: 20, referenceFrame: 'screen' });
+      absoluteSensor.addEventListener('reading', () => {
+        const [x, y, z, w] = absoluteSensor.quaternion || [];
+        if (![x, y, z, w].every(Number.isFinite)) return;
+        // Rotate the screen's top-edge vector (0, 1, 0) into Earth coordinates.
+        const east = 2 * (x * y - w * z);
+        const north = 1 - 2 * (x * x + z * z);
+        if (Math.hypot(east, north) < 0.2) return; // Phone is too upright for a stable heading.
+        setHeading((Math.atan2(east, north) / rad + 360) % 360, 'absolute sensor');
+      });
+      absoluteSensor.start();
+    } catch (error) {
+      absoluteSensor = null;
+    }
+  }
+  function stopCompass(message) {
+    running = false;
+    clearTimeout(sensorTimeout);
+    if (window.AndroidBridge) window.AndroidBridge.stopCompass();
+    window.removeEventListener('deviceorientationabsolute', onOrientation);
+    window.removeEventListener('deviceorientation', onOrientation);
+    if (absoluteSensor) absoluteSensor.stop();
+    absoluteSensor = null;
+    sensorSource = null;
+    heading = null;
+    render();
+    if (message && qibla !== null) statusEl.textContent = message;
+  }
+  function startCompass() {
+    if (running) return;
+    if (window.AndroidBridge) {
+      running = true;
+      lastSensor = 0;
+      sensorSource = null;
+      statusEl.textContent = 'Waiting for the phone compass…';
+      window.AndroidBridge.startCompass();
+      sensorTimeout = setTimeout(() => {
+        if (running && !lastSensor) stopCompass('Live compass unavailable. Use the Qibla bearing shown above.');
+      }, 10000);
+      return;
+    }
+    if (!window.isSecureContext) { statusEl.textContent = 'Compass access needs a secure page. A content:// file may be restricted; try HTTPS or localhost.'; return; }
+    if (!window.DeviceOrientationEvent && !('AbsoluteOrientationSensor' in window)) { statusEl.textContent = 'This browser does not expose a compass sensor. Use the bearing above.'; return; }
+    running = true;
+    lastSensor = 0;
+    sensorSource = null;
+    window.addEventListener('deviceorientationabsolute', onOrientation);
+    window.addEventListener('deviceorientation', onOrientation);
+    statusEl.textContent = 'Waiting for the phone compass…';
+    startAbsoluteSensor();
+    sensorTimeout = setTimeout(() => {
+      if (running && !lastSensor) {
+        stopCompass('Live compass unavailable on this device. Use the Qibla bearing shown above.');
+      }
+    }, 6000);
+  }
+  function showQibla() {
+    if (window.AndroidBridge) {
+      startCompass();
+      requestLocation(true);
+      return;
+    }
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(result => {
+        if (result === 'granted') startCompass();
+      }).catch(() => {});
+    } else startCompass();
+    requestLocation(true);
+  }
+  showButton.addEventListener('click', showQibla);
+  function requestLocation(fresh = false) {
+    qibla = null;
+    bearingFailure = '';
+    usedLocationEl.textContent = 'Waiting for location…';
+    locationPending = true;
+    locationRequestIsRefresh = fresh;
+    locationFailure = '';
+    showButton.disabled = true;
+    showButton.textContent = fresh ? 'Refreshing location…' : 'Finding location…';
+    render();
+    if (window.AndroidBridge) {
+      window.AndroidBridge.getLocation(fresh);
+      return;
+    }
+    if (!navigator.geolocation || !window.isSecureContext) {
+      locationFailed(!window.isSecureContext
+        ? 'This browser blocks location on this page. Use the Android app or open the page over HTTPS.'
+        : 'This browser has no location API. Use the Android app.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setCoordinates(position.coords.latitude, position.coords.longitude, 'Phone location', position.coords.accuracy);
+      },
+      error => {
+        if (error.code === 1) locationFailed('Location permission denied (code 1). Allow location for the browser and page.');
+        else if (error.code === 2) locationFailed('Position unavailable (code 2). Try outdoors or check device Location settings.');
+        else if (error.code === 3) locationFailed('Location timed out (code 3). Try outdoors for a GPS fix.');
+        else locationFailed(`Location failed (code ${error.code ?? 'unknown'}).`);
+      },
+      { enableHighAccuracy: true, timeout: 60000, maximumAge: fresh ? 0 : 300000 }
+    );
+  }
+  window.qiblaNativeLocation = (lat, lon, accuracy) => {
+    setCoordinates(lat, lon, 'Phone location', accuracy);
+  };
+  window.qiblaNativeLocationError = message => {
+    locationFailed(message);
+  };
+  window.qiblaNativeHeading = value => {
+    if (running && Number.isFinite(value)) setHeading((value + 360) % 360, 'Android compass');
+  };
+  window.qiblaNativeCompassError = message => stopCompass(message);
+  render();
+  if (window.AndroidBridge) {
+    startCompass();
+    requestLocation();
+  }
+})();
+</script>
+</body>
+</html>
